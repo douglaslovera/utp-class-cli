@@ -5,6 +5,7 @@ const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
 
 export interface AppConfigEnv {
+  API_BEARER_TOKEN?: string;
   LOG_LEVEL?: string;
   UTP_REFRESH_TOKEN?: string;
   UTP_COOKIE_HEADER?: string;
@@ -15,7 +16,7 @@ export interface AppConfigEnv {
 
 function requireEnv(
   env: AppConfigEnv,
-  key: "UTP_REFRESH_TOKEN" | "UTP_COOKIE_HEADER" | "UTP_USER_ID",
+  key: "API_BEARER_TOKEN" | "UTP_REFRESH_TOKEN" | "UTP_COOKIE_HEADER" | "UTP_USER_ID",
 ): string {
   const value = env[key]?.trim();
 
@@ -49,6 +50,9 @@ function parseNumber(
 export function loadConfig(env: AppConfigEnv): AppConfig {
   return {
     logLevel: env.LOG_LEVEL?.trim() || "info",
+    api: {
+      bearerToken: requireEnv(env, "API_BEARER_TOKEN"),
+    },
     auth: {
       refreshToken: requireEnv(env, "UTP_REFRESH_TOKEN"),
       cookieHeader: requireEnv(env, "UTP_COOKIE_HEADER"),

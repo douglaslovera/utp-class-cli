@@ -3,6 +3,7 @@ import { loadConfig } from "../config/env";
 import { ConfigError } from "../utils/errors";
 
 const baseEnv = {
+  API_BEARER_TOKEN: "api-token",
   UTP_REFRESH_TOKEN: "refresh-token",
   UTP_COOKIE_HEADER: "SESSION=abc",
   UTP_USER_ID: "123456",
@@ -17,6 +18,7 @@ describe("loadConfig", () => {
     const config = loadConfig(baseEnv);
 
     expect(config.logLevel).toBe("info");
+    expect(config.api.bearerToken).toBe("api-token");
     expect(config.auth.clientId).toBe("pao-web");
     expect(config.upstream.platformBaseUrl).toBe("https://class.utp.edu.pe");
     expect(config.upstream.apiBaseUrl).toBe("https://api-pao.utpxpedition.com");

@@ -4,6 +4,7 @@ import { createSessionService } from "../services/auth/session-service";
 import { AuthError } from "../utils/errors";
 
 const config = loadConfig({
+  API_BEARER_TOKEN: "api-token",
   UTP_REFRESH_TOKEN: "initial-refresh-token",
   UTP_COOKIE_HEADER: "AUTH_SESSION_ID=abc123",
   UTP_USER_ID: "123456",

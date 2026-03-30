@@ -13,6 +13,7 @@ import { registerNotificationsRoutes } from "./routes/notifications";
 import { registerCalendarRoutes } from "./routes/calendar";
 import { registerEvaluationsRoutes } from "./routes/evaluations";
 import { registerClassesRoutes } from "./routes/classes";
+import { bearerAuthMiddleware } from "./middleware/bearer-auth";
 import { normalizeError, toErrorResponse } from "./utils/errors";
 
 interface BuildAppOptions {
@@ -97,6 +98,8 @@ export function buildApp(
       durationMs: Number((performance.now() - start).toFixed(2)),
     });
   });
+
+  app.use("*", bearerAuthMiddleware(config));
 
   app.onError((error, c) => {
     const normalized = normalizeError(error);

@@ -4,6 +4,7 @@ import { createUtpHttpClient } from "../services/upstream/utp-http-client";
 import { UpstreamError } from "../utils/errors";
 
 const config = loadConfig({
+  API_BEARER_TOKEN: "api-token",
   UTP_REFRESH_TOKEN: "refresh-token",
   UTP_COOKIE_HEADER: "SESSION=abc",
   UTP_USER_ID: "123456",

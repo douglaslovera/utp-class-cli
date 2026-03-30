@@ -11,6 +11,10 @@ export interface AuthConfig {
   accessTokenLeewayMs: number;
 }
 
+export interface ApiSecurityConfig {
+  bearerToken: string;
+}
+
 export interface UpstreamConfig {
   platformBaseUrl: string;
   apiBaseUrl: string;
@@ -20,6 +24,7 @@ export interface UpstreamConfig {
 
 export interface AppConfig {
   logLevel: string;
+  api: ApiSecurityConfig;
   auth: AuthConfig;
   upstream: UpstreamConfig;
 }

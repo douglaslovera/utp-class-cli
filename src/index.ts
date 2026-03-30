@@ -11,6 +11,7 @@ let appCache: WorkerAppCache | null = null;
 
 function createCacheKey(env: WorkerBindings): string {
   return JSON.stringify({
+    bearerToken: env.API_BEARER_TOKEN,
     refreshToken: env.UTP_REFRESH_TOKEN,
     cookieHeader: env.UTP_COOKIE_HEADER,
     userId: env.UTP_USER_ID,

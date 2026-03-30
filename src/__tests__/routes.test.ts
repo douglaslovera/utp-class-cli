@@ -3,10 +3,15 @@ import { buildApp } from "../app";
 import { loadConfig } from "../config/env";
 
 const config = loadConfig({
+  API_BEARER_TOKEN: "api-token",
   UTP_REFRESH_TOKEN: "refresh-token",
   UTP_COOKIE_HEADER: "SESSION=abc",
   UTP_USER_ID: "123456",
 });
+
+const authHeaders = {
+  Authorization: `Bearer ${config.api.bearerToken}`,
+};
 
 function createTokenResponse(): Response {
   return new Response(
@@ -91,6 +96,7 @@ describe("HTTP routes", () => {
     });
 
     const response = await app.request("/session/status", {
+      headers: authHeaders,
       method: "GET",
     });
 
@@ -107,6 +113,7 @@ describe("HTTP routes", () => {
     });
 
     const response = await app.request("/session/refresh", {
+      headers: authHeaders,
       method: "POST",
     });
 
@@ -147,6 +154,7 @@ describe("HTTP routes", () => {
     });
 
     const response = await currentApp.request("/notifications", {
+      headers: authHeaders,
       method: "GET",
     });
 
@@ -199,6 +207,7 @@ describe("HTTP routes", () => {
     });
 
     const response = await app.request("/notifications?seen=false", {
+      headers: authHeaders,
       method: "GET",
     });
 
@@ -236,6 +245,7 @@ describe("HTTP routes", () => {
     });
 
     const response = await app.request("/notifications?seen=maybe", {
+      headers: authHeaders,
       method: "GET",
     });
 
@@ -281,6 +291,7 @@ describe("HTTP routes", () => {
     });
 
     const response = await app.request("/notifications/notif-1/seen", {
+      headers: authHeaders,
       method: "PATCH",
     });
 
@@ -313,6 +324,7 @@ describe("HTTP routes", () => {
       });
 
       const response = await app.request(url, {
+        headers: authHeaders,
         method: "GET",
       });
 
@@ -329,4 +341,48 @@ describe("HTTP routes", () => {
       });
     });
   }
+
+  test("non-health routes reject requests without a bearer token", async () => {
+    let fetchCalls = 0;
+    const app = buildApp(config, {
+      fetchImpl: (async () => {
+        fetchCalls += 1;
+        return createTokenResponse();
+      }) as unknown as typeof fetch,
+    });
+
+    const response = await app.request("/notifications", {
+      method: "GET",
+    });
+
+    expect(response.status).toBe(401);
+    expect((await response.json()) as { error: { code: string; message: string } }).toEqual({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Missing or invalid bearer token",
+      },
+    });
+    expect(fetchCalls).toBe(0);
+  });
+
+  test("non-health routes reject requests with an invalid bearer token", async () => {
+    const app = buildApp(config, {
+      fetchImpl: (async () => createTokenResponse()) as unknown as typeof fetch,
+    });
+
+    const response = await app.request("/session/status", {
+      headers: {
+        Authorization: "Bearer wrong-token",
+      },
+      method: "GET",
+    });
+
+    expect(response.status).toBe(401);
+    expect((await response.json()) as { error: { code: string; message: string } }).toEqual({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Missing or invalid bearer token",
+      },
+    });
+  });
 });
