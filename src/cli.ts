@@ -3,9 +3,10 @@ import { cac } from "cac";
 import { createTokenStore } from "./cli/token-store";
 import { runBrowserLogin } from "./cli/oidc-login";
 import { refreshSession } from "./cli/refresh-session";
-import { runBrowserCaptureLogin } from "./cli/browser-capture-login";
+import { runBrowserCaptureLogin, runHeadlessLogin } from "./cli/browser-capture-login";
 import { createCliUtpHttpClient } from "./cli/utp-cli-client";
 import { createNotificationsService } from "./services/modules/notifications-service";
+import { promptPassword, promptText } from "./cli/prompts";
 
 function formatValue(value: string | null): string {
   return value ?? "unknown";
@@ -21,21 +22,32 @@ function parseTimeout(value: unknown): number {
   return parsed;
 }
 
-function parseLoginMode(value: unknown): "capture" | "localhost" {
+function parseLoginMode(value: unknown): "capture" | "localhost" | "headless" {
   if (value === undefined || value === "capture") {
     return "capture";
   }
 
-  if (value === "localhost") {
-    return "localhost";
+  if (value === "localhost" || value === "headless") {
+    return value;
   }
 
-  throw new Error("--mode must be either 'capture' or 'localhost'");
+  throw new Error("--mode must be 'capture', 'localhost', or 'headless'");
 }
 
 function printError(error: unknown): void {
   const message = error instanceof Error ? error.message : "Unexpected error";
   console.error(message);
+}
+
+async function readHeadlessCredentials(): Promise<{ username: string; password: string }> {
+  const username = process.env.UTP_USERNAME?.trim() || await promptText("Email: ");
+  const password = process.env.UTP_PASSWORD || await promptPassword("Password: ");
+
+  if (!username || !password) {
+    throw new Error("Email and password are required for headless login");
+  }
+
+  return { username, password };
 }
 
 function parseSeen(value: unknown): boolean | undefined {
@@ -87,21 +99,33 @@ cli
   .option("--timeout <seconds>", "Seconds to wait for the browser callback", {
     default: 120,
   })
-  .option("--mode <mode>", "Login mode: capture or localhost", {
+  .option("--mode <mode>", "Login mode: capture, localhost, or headless", {
     default: "capture",
   })
   .action(async (options: { timeout?: string | number; mode?: string }) => {
     try {
       const timeoutSeconds = parseTimeout(options.timeout);
       const mode = parseLoginMode(options.mode);
-      console.log("Opening browser for UTP login...");
+      console.log(
+        mode === "headless"
+          ? "Starting headless UTP login..."
+          : "Opening browser for UTP login...",
+      );
       console.log(`Login mode: ${mode}`);
       console.log(`Waiting up to ${timeoutSeconds} seconds for the login callback.`);
 
-      const result =
-        mode === "capture"
-          ? await runBrowserCaptureLogin({ timeoutSeconds })
-          : await runBrowserLogin({ timeoutSeconds });
+      const result = await (async () => {
+        if (mode === "capture") {
+          return runBrowserCaptureLogin({ timeoutSeconds });
+        }
+
+        if (mode === "headless") {
+          const credentials = await readHeadlessCredentials();
+          return runHeadlessLogin({ timeoutSeconds }, credentials);
+        }
+
+        return runBrowserLogin({ timeoutSeconds });
+      })();
       const existingSession = await store.load();
       await store.save({
         ...result.session,

@@ -5,6 +5,11 @@ import { exchangeAuthorizationCode, type LoginOptions, type LoginResult } from "
 
 const CHROME_CHANNELS = ["chrome", "chrome-beta", "chrome-dev", "msedge"] as const;
 
+export interface HeadlessCredentials {
+  username: string;
+  password: string;
+}
+
 function buildAuthorizationUrl(state: string, challenge: string): string {
   const authorizationUrl = new URL(UTP_AUTH.authorizationUrl);
   authorizationUrl.searchParams.set("client_id", UTP_AUTH.clientId);
@@ -23,14 +28,14 @@ interface BrowserSession {
   context: BrowserContext;
 }
 
-async function launchChrome(): Promise<BrowserSession> {
+async function launchChrome(headless: boolean): Promise<BrowserSession> {
   let lastError: unknown;
 
   for (const channel of CHROME_CHANNELS) {
     try {
       const browser = await chromium.launch({
         channel,
-        headless: false,
+        headless,
       });
 
       const context = await browser.newContext();
@@ -45,6 +50,57 @@ async function launchChrome(): Promise<BrowserSession> {
     "Could not launch Chrome or Edge through Playwright. Install Google Chrome, or use the localhost login mode if UTP allows it.",
     { cause: lastError },
   );
+}
+
+async function fillHeadlessCredentials(
+  page: Page,
+  credentials: HeadlessCredentials,
+): Promise<void> {
+  const usernameField = page
+    .locator(
+      [
+        "input[name='username']",
+        "input#username",
+        "input[type='email']",
+        "input[autocomplete='username']",
+        "input[name='email']",
+      ].join(", "),
+    )
+    .first();
+  const passwordField = page
+    .locator(
+      [
+        "input[name='password']",
+        "input#password",
+        "input[type='password']",
+        "input[autocomplete='current-password']",
+      ].join(", "),
+    )
+    .first();
+
+  await usernameField.waitFor({ state: "visible", timeout: 30_000 });
+  await usernameField.fill(credentials.username);
+  await passwordField.fill(credentials.password);
+
+  const submitButton = page
+    .locator(
+      [
+        "button[type='submit']",
+        "input[type='submit']",
+        "button:has-text('Iniciar')",
+        "button:has-text('Ingresar')",
+        "button:has-text('Login')",
+        "button:has-text('Sign in')",
+      ].join(", "),
+    )
+    .first();
+
+  if (await submitButton.count()) {
+    await submitButton.click();
+    return;
+  }
+
+  await passwordField.press("Enter");
 }
 
 function waitForRedirectCode(
@@ -121,24 +177,50 @@ function waitForRedirectCode(
 }
 
 export async function runBrowserCaptureLogin(options: LoginOptions): Promise<LoginResult> {
+  return runManagedBrowserLogin(options, {
+    headless: false,
+  });
+}
+
+export async function runHeadlessLogin(
+  options: LoginOptions,
+  credentials: HeadlessCredentials,
+): Promise<LoginResult> {
+  return runManagedBrowserLogin(options, {
+    headless: true,
+    credentials,
+  });
+}
+
+async function runManagedBrowserLogin(
+  options: LoginOptions,
+  browserOptions: {
+    headless: boolean;
+    credentials?: HeadlessCredentials;
+  },
+): Promise<LoginResult> {
   const state = createState();
   const pkce = createPkcePair();
   const authorizationUrl = buildAuthorizationUrl(state, pkce.challenge);
-  const browserSession = await launchChrome();
+  const browserSession = await launchChrome(browserOptions.headless);
   const { browser, context } = browserSession;
   const page = await context.newPage();
   const timeoutMs = options.timeoutSeconds * 1000;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
 
   try {
     const codePromise = waitForRedirectCode(context, page, state);
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(
-        () => reject(new Error(`Login timed out after ${options.timeoutSeconds} seconds`)),
-        timeoutMs,
-      );
+      timeout = setTimeout(() => {
+        reject(new Error(`Login timed out after ${options.timeoutSeconds} seconds`));
+      }, timeoutMs);
     });
 
     await page.goto(authorizationUrl);
+    if (browserOptions.credentials) {
+      await fillHeadlessCredentials(page, browserOptions.credentials);
+    }
+
     const code = await Promise.race([codePromise, timeoutPromise]);
     const session = await exchangeAuthorizationCode(
       code,
@@ -149,6 +231,10 @@ export async function runBrowserCaptureLogin(options: LoginOptions): Promise<Log
 
     return { session };
   } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
     await context.close().catch(() => undefined);
     await browser.close().catch(() => undefined);
   }
