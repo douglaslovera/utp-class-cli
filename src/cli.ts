@@ -7,6 +7,7 @@ import { runBrowserCaptureLogin, runHeadlessLogin } from "./cli/browser-capture-
 import { createCliUtpHttpClient } from "./cli/utp-cli-client";
 import { createNotificationsService } from "./services/modules/notifications-service";
 import { promptPassword, promptText } from "./cli/prompts";
+import { AppError } from "./utils/errors";
 
 function formatValue(value: string | null): string {
   return value ?? "unknown";
@@ -37,6 +38,10 @@ function parseLoginMode(value: unknown): "capture" | "localhost" | "headless" {
 function printError(error: unknown): void {
   const message = error instanceof Error ? error.message : "Unexpected error";
   console.error(message);
+
+  if (error instanceof AppError && error.details) {
+    console.error(`Details: ${JSON.stringify(error.details, null, 2)}`);
+  }
 }
 
 async function readHeadlessCredentials(): Promise<{ username: string; password: string }> {
@@ -77,11 +82,9 @@ async function resolveUserId(optionUserId?: string): Promise<string> {
     return session.userId;
   }
 
-  if (process.env.UTP_USER_ID?.trim()) {
-    return process.env.UTP_USER_ID.trim();
-  }
-
-  throw new Error("Missing UTP user id. Run `utp config user-id <id>` or pass --user-id <id>.");
+  throw new Error(
+    "Missing UTP user id. Run `utp config user-id <id>` or pass --user-id <id>.",
+  );
 }
 
 async function createNotificationsCliService(optionUserId?: string) {
@@ -93,6 +96,55 @@ async function createNotificationsCliService(optionUserId?: string) {
 
 const cli = cac("utp");
 const store = createTokenStore();
+
+async function saveUserId(userId: string): Promise<void> {
+  const trimmedUserId = userId.trim();
+
+  if (!trimmedUserId) {
+    throw new Error("User id cannot be empty");
+  }
+
+  const session = await store.load();
+
+  if (!session) {
+    throw new Error("No local session found. Run `utp login` first.");
+  }
+
+  await store.save({
+    ...session,
+    userId: trimmedUserId,
+    updatedAt: new Date().toISOString(),
+  });
+
+  const updatedSession = await store.load();
+
+  console.log("User id saved.");
+  console.log(`Session file: ${store.path}`);
+  console.log(`User id: ${formatValue(updatedSession?.userId ?? null)}`);
+}
+
+async function handleCompatibilityCommands(argv: string[]): Promise<boolean> {
+  const [first, second, third] = argv;
+
+  if (first === "config" && second === "user-id") {
+    if (!third || third === "--help" || third === "-h") {
+      console.log("Usage:");
+      console.log("  $ utp config user-id <userId>");
+      console.log("");
+      console.log("Save the UTP user id used by API commands");
+      return true;
+    }
+
+    if (third.startsWith("-")) {
+      throw new Error("Missing user id. Usage: utp config user-id <userId>");
+    }
+
+    await saveUserId(third);
+    return true;
+  }
+
+  return false;
+}
 
 cli
   .command("login", "Open the UTP login flow and save the CLI session")
@@ -198,25 +250,7 @@ cli
   .command("config user-id <userId>", "Save the UTP user id used by API commands")
   .action(async (userId: string) => {
     try {
-      const trimmedUserId = userId.trim();
-
-      if (!trimmedUserId) {
-        throw new Error("User id cannot be empty");
-      }
-
-      const session = await store.load();
-
-      if (!session) {
-        throw new Error("No local session found. Run `utp login` first.");
-      }
-
-      await store.save({
-        ...session,
-        userId: trimmedUserId,
-        updatedAt: new Date().toISOString(),
-      });
-
-      console.log("User id saved.");
+      await saveUserId(userId);
     } catch (error) {
       printError(error);
       process.exitCode = 1;
@@ -257,4 +291,14 @@ cli
   });
 
 cli.help();
-cli.parse();
+
+try {
+  const handled = await handleCompatibilityCommands(process.argv.slice(2));
+
+  if (!handled) {
+    cli.parse();
+  }
+} catch (error) {
+  printError(error);
+  process.exitCode = 1;
+}
