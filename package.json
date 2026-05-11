@@ -2,7 +2,11 @@
   "name": "utp-class-cli",
   "private": true,
   "type": "module",
+  "bin": {
+    "utp": "./dist/cli.js"
+  },
   "scripts": {
+    "cli": "bun run src/cli.ts",
     "dev": "wrangler dev",
     "start": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -10,7 +14,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "hono": "^4.12.9"
+    "cac": "^7.0.0",
+    "hono": "^4.12.9",
+    "playwright-core": "^1.59.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260329.1",
