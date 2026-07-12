@@ -73,10 +73,14 @@ async function launchChrome(headless: boolean): Promise<BrowserSession> {
     }
   }
 
+  const launchDetails = lastError instanceof Error
+    ? lastError.message
+    : String(lastError ?? "Unknown browser launch error");
+
   throw new Error(
-    executablePath
+    `${executablePath
       ? `Could not launch the browser at UTP_BROWSER_PATH=${executablePath}. Check that the path points to a working Chromium-based browser.`
-      : "Could not launch a browser. Install Playwright Chromium with `pnpm exec playwright install chromium`, install Chrome/Edge, or set UTP_BROWSER_PATH to the browser executable.",
+      : "Could not launch a browser. This login is headless and does not require a screen. Install Chromium and its Linux dependencies with `pnpm exec playwright install --with-deps chromium`, or set UTP_BROWSER_PATH to a working browser executable."}\n\nPlaywright launch error:\n${launchDetails}`,
     { cause: lastError },
   );
 }
