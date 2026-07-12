@@ -26,6 +26,24 @@ utp login --browser
 
 Advanced login modes (`capture`, `localhost`, and `headless`) remain available through `--mode`, but they all end in the same kind of saved local CLI session.
 
+Headless login needs a Chromium-based browser. On a server without Chrome or Edge, install Playwright's Chromium build from the project directory:
+
+```sh
+pnpm exec playwright install chromium
+```
+
+On Linux, if Chromium reports missing system libraries and you have administrator access, install them together with the browser:
+
+```sh
+pnpm exec playwright install --with-deps chromium
+```
+
+You can also point the CLI to an existing Chromium executable:
+
+```sh
+UTP_BROWSER_PATH=/usr/bin/chromium utp login
+```
+
 ## 2. Copy an existing session from another machine
 
 If you already logged in on another machine, you can copy the saved `session.json` file instead of running `utp login` again.

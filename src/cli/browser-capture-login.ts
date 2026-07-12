@@ -44,7 +44,21 @@ interface BrowserSession {
 async function launchChrome(headless: boolean): Promise<BrowserSession> {
   let lastError: unknown;
 
-  for (const channel of CHROME_CHANNELS) {
+  const executablePath = process.env.UTP_BROWSER_PATH?.trim();
+
+  try {
+    const browser = await chromium.launch({
+      headless,
+      ...(executablePath ? { executablePath } : {}),
+    });
+    const context = await browser.newContext();
+
+    return { browser, context };
+  } catch (error) {
+    lastError = error;
+  }
+
+  for (const channel of executablePath ? [] : CHROME_CHANNELS) {
     try {
       const browser = await chromium.launch({
         channel,
@@ -60,7 +74,9 @@ async function launchChrome(headless: boolean): Promise<BrowserSession> {
   }
 
   throw new Error(
-    "Could not launch Chrome or Edge through Playwright. Install Google Chrome, or use the localhost login mode if UTP allows it.",
+    executablePath
+      ? `Could not launch the browser at UTP_BROWSER_PATH=${executablePath}. Check that the path points to a working Chromium-based browser.`
+      : "Could not launch a browser. Install Playwright Chromium with `pnpm exec playwright install chromium`, install Chrome/Edge, or set UTP_BROWSER_PATH to the browser executable.",
     { cause: lastError },
   );
 }
