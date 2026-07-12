@@ -6,6 +6,10 @@ import { refreshSession } from "./cli/refresh-session";
 import { runBrowserCaptureLogin, runHeadlessLogin } from "./cli/browser-capture-login";
 import { createCliUtpHttpClient } from "./cli/utp-cli-client";
 import { createNotificationsService } from "./services/modules/notifications-service";
+import {
+  createCoursesService,
+  type DashboardCourse,
+} from "./services/modules/courses-service";
 import { promptPassword, promptText } from "./cli/prompts";
 import { AppError } from "./utils/errors";
 
@@ -71,6 +75,15 @@ function parseSeen(value: unknown): boolean | undefined {
   throw new Error("--seen must be either true or false");
 }
 
+function parseOptionalText(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === false) {
+    return undefined;
+  }
+
+  const parsed = String(value).trim();
+  return parsed || undefined;
+}
+
 async function resolveUserId(optionUserId?: string): Promise<string> {
   if (optionUserId?.trim()) {
     return optionUserId.trim();
@@ -92,6 +105,61 @@ async function createNotificationsCliService(optionUserId?: string) {
   const client = await createCliUtpHttpClient({ store, userId });
 
   return createNotificationsService(client, userId);
+}
+
+async function createCoursesCliService(optionUserId?: string) {
+  const userId = await resolveUserId(optionUserId);
+  const client = await createCliUtpHttpClient({ store, userId });
+
+  return createCoursesService(client, userId);
+}
+
+function formatModality(modality?: string): string {
+  switch (modality?.toUpperCase()) {
+    case "R":
+      return "Remote";
+    case "V":
+    case "VT":
+      return "Virtual 24/7";
+    case "P":
+      return "Presencial";
+    default:
+      return modality || "Unknown";
+  }
+}
+
+function formatCourse(course: DashboardCourse, showTeacherEmail: boolean): string {
+  const teacher = [course.teacherFirstName, course.teacherLastName]
+    .filter(Boolean)
+    .join(" ") || "Unknown";
+  const lines = [
+    course.name || "Unnamed course",
+    `Section: ${course.classNumber || course.sectionCode || "Unknown"}`,
+    `Modality: ${formatModality(course.modality)}`,
+    `Teacher: ${teacher}`,
+  ];
+
+  if (showTeacherEmail) {
+    lines.push(`Teacher email: ${course.teacherEmail || "Unknown"}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatAcademicPeriods(
+  periods: Awaited<ReturnType<ReturnType<typeof createCoursesService>["listAcademicPeriods"]>>,
+): string {
+  return [...periods]
+    .sort((left, right) => right.start.localeCompare(left.start))
+    .map((period) =>
+      `${period.period}  ${period.name}\n      ${period.start} to ${period.end}`
+    )
+    .join("\n\n");
+}
+
+async function printAcademicPeriods(optionUserId?: string): Promise<void> {
+  const service = await createCoursesCliService(optionUserId);
+  console.log(formatAcademicPeriods(await service.listAcademicPeriods()));
 }
 
 const cli = cac("utp");
@@ -286,6 +354,67 @@ cli
     } catch (error) {
       printError(error);
       console.error("Run `utp login` to authenticate again if the session expired.");
+      process.exitCode = 1;
+    }
+  });
+
+cli
+  .command("periods", "List available UTP academic periods")
+  .option("--user-id <id>", "UTP user id for this request")
+  .action(async (options: { userId?: string }) => {
+    try {
+      await printAcademicPeriods(options.userId);
+    } catch (error) {
+      printError(error);
+      console.error("Run `utp login` to authenticate again if the session expired.");
+      process.exitCode = 1;
+    }
+  });
+
+cli
+  .command("courses", "List or search UTP courses")
+  .option("--periods", "List the available academic periods")
+  .option("--period <period>", "Filter by period code or name")
+  .option("--search <text>", "Search courses across all academic periods")
+  .option("--teacher-email", "Include the teacher email address")
+  .option("--json", "Print the complete filtered response as JSON")
+  .option("--user-id <id>", "UTP user id for this request")
+  .action(async (options: {
+    period?: string | number;
+    periods?: boolean;
+    search?: string | number;
+    teacherEmail?: boolean;
+    json?: boolean;
+    userId?: string;
+  }) => {
+    try {
+      const service = await createCoursesCliService(options.userId);
+
+      if (options.periods) {
+        console.log(formatAcademicPeriods(await service.listAcademicPeriods()));
+        return;
+      }
+
+      const result = await service.listCourses({
+        period: parseOptionalText(options.period),
+        search: parseOptionalText(options.search),
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      if (result.courses.length === 0) {
+        console.log("No courses found.");
+        return;
+      }
+
+      console.log(result.courses
+        .map((course) => formatCourse(course, options.teacherEmail === true))
+        .join("\n\n"));
+    } catch (error) {
+      printError(error);
       process.exitCode = 1;
     }
   });
