@@ -43,6 +43,13 @@ interface BrowserSession {
 
 async function launchChrome(headless: boolean): Promise<BrowserSession> {
   let lastError: unknown;
+  const launchErrors: string[] = [];
+
+  const recordLaunchError = (label: string, error: unknown): void => {
+    lastError = error;
+    const message = error instanceof Error ? error.message : String(error);
+    launchErrors.push(`${label}:\n${message}`);
+  };
 
   const executablePath = process.env.UTP_BROWSER_PATH?.trim();
 
@@ -55,7 +62,10 @@ async function launchChrome(headless: boolean): Promise<BrowserSession> {
 
     return { browser, context };
   } catch (error) {
-    lastError = error;
+    recordLaunchError(
+      executablePath ? `UTP_BROWSER_PATH (${executablePath})` : "Playwright Chromium",
+      error,
+    );
   }
 
   for (const channel of executablePath ? [] : CHROME_CHANNELS) {
@@ -69,13 +79,11 @@ async function launchChrome(headless: boolean): Promise<BrowserSession> {
 
       return { browser, context };
     } catch (error) {
-      lastError = error;
+      recordLaunchError(`Browser channel ${channel}`, error);
     }
   }
 
-  const launchDetails = lastError instanceof Error
-    ? lastError.message
-    : String(lastError ?? "Unknown browser launch error");
+  const launchDetails = launchErrors.join("\n\n");
 
   throw new Error(
     `${executablePath
