@@ -10,6 +10,19 @@ export interface HeadlessCredentials {
   password: string;
 }
 
+export function formatAuthenticationError(message: string): string {
+  const normalized = message.replace(/\s+/g, " ").trim();
+
+  if (
+    /invalid username or password|incorrect (user|username|password)|usuario.*contrase(?:ñ|n)a|credenciales (inv[aá]lidas|incorrectas)/i
+      .test(normalized)
+  ) {
+    return "Incorrect user or password.";
+  }
+
+  return normalized ? `UTP login failed: ${normalized}` : "UTP login failed.";
+}
+
 function buildAuthorizationUrl(state: string, challenge: string): string {
   const authorizationUrl = new URL(UTP_AUTH.authorizationUrl);
   authorizationUrl.searchParams.set("client_id", UTP_AUTH.clientId);
@@ -176,6 +189,40 @@ function waitForRedirectCode(
   });
 }
 
+async function waitForAuthenticationError(page: Page): Promise<never> {
+  const errorMessage = await page.waitForFunction(() => {
+    const selectors = [
+      "#input-error",
+      "#kc-error-message",
+      ".kc-feedback-text",
+      ".alert-error",
+      ".pf-c-alert__title",
+      ".pf-v5-c-alert__title",
+    ];
+
+    for (const selector of selectors) {
+      for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+        const style = window.getComputedStyle(element);
+        const message = element.innerText?.replace(/\s+/g, " ").trim();
+
+        if (
+          message
+          && style.display !== "none"
+          && style.visibility !== "hidden"
+          && element.getClientRects().length > 0
+        ) {
+          return message;
+        }
+      }
+    }
+
+    return false;
+  }, undefined, { timeout: 0 });
+
+  const message = await errorMessage.jsonValue();
+  throw new Error(formatAuthenticationError(typeof message === "string" ? message : ""));
+}
+
 export async function runBrowserCaptureLogin(options: LoginOptions): Promise<LoginResult> {
   return runManagedBrowserLogin(options, {
     headless: false,
@@ -218,7 +265,21 @@ async function runManagedBrowserLogin(
 
     await page.goto(authorizationUrl);
     if (browserOptions.credentials) {
+      const authenticationErrorPromise = waitForAuthenticationError(page);
       await fillHeadlessCredentials(page, browserOptions.credentials);
+      const code = await Promise.race([
+        codePromise,
+        authenticationErrorPromise,
+        timeoutPromise,
+      ]);
+      const session = await exchangeAuthorizationCode(
+        code,
+        UTP_AUTH.classRedirectUri,
+        pkce.verifier,
+        options.fetchImpl,
+      );
+
+      return { session };
     }
 
     const code = await Promise.race([codePromise, timeoutPromise]);

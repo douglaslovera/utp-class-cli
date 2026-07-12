@@ -18,7 +18,13 @@ The CLI saves this session to a local `session.json` file. By default that is un
 
 You can also override the config directory with `UTP_CLASS_CLI_CONFIG_DIR`.
 
-`utp login` supports multiple login modes (`capture`, `localhost`, and `headless`), but they all end in the same kind of saved local CLI session.
+`utp login` asks for the UTP user and a hidden password, then completes the login in a headless browser. To log in interactively with a visible browser instead, use:
+
+```sh
+utp login --browser
+```
+
+Advanced login modes (`capture`, `localhost`, and `headless`) remain available through `--mode`, but they all end in the same kind of saved local CLI session.
 
 ## 2. Copy an existing session from another machine
 

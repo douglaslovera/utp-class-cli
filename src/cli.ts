@@ -5,11 +5,21 @@ import { runBrowserLogin } from "./cli/oidc-login";
 import { refreshSession } from "./cli/refresh-session";
 import { runBrowserCaptureLogin, runHeadlessLogin } from "./cli/browser-capture-login";
 import { createCliUtpHttpClient } from "./cli/utp-cli-client";
-import { createNotificationsService } from "./services/modules/notifications-service";
+import {
+  createNotificationsService,
+  formatNotificationDate,
+  readNotificationDate,
+  readNotifications,
+  type UtpNotification,
+} from "./services/modules/notifications-service";
 import {
   createCoursesService,
   type DashboardCourse,
 } from "./services/modules/courses-service";
+import {
+  createActivitiesService,
+  type PendingActivity,
+} from "./services/modules/activities-service";
 import { promptPassword, promptText } from "./cli/prompts";
 import { AppError } from "./utils/errors";
 
@@ -27,12 +37,23 @@ function parseTimeout(value: unknown): number {
   return parsed;
 }
 
-function parseLoginMode(value: unknown): "capture" | "localhost" | "headless" {
-  if (value === undefined || value === "capture") {
+function parseLoginMode(
+  value: unknown,
+  browser: unknown,
+): "capture" | "localhost" | "headless" {
+  if (browser === true) {
+    if (value !== undefined && value !== "capture") {
+      throw new Error("--browser cannot be combined with a non-browser --mode");
+    }
+
     return "capture";
   }
 
-  if (value === "localhost" || value === "headless") {
+  if (value === undefined || value === "headless") {
+    return "headless";
+  }
+
+  if (value === "localhost" || value === "capture") {
     return value;
   }
 
@@ -49,7 +70,7 @@ function printError(error: unknown): void {
 }
 
 async function readHeadlessCredentials(): Promise<{ username: string; password: string }> {
-  const username = process.env.UTP_USERNAME?.trim() || await promptText("Email: ");
+  const username = process.env.UTP_USERNAME?.trim() || await promptText("User: ");
   const password = process.env.UTP_PASSWORD || await promptPassword("Password: ");
 
   if (!username || !password) {
@@ -114,6 +135,13 @@ async function createCoursesCliService(optionUserId?: string) {
   return createCoursesService(client, userId);
 }
 
+async function createActivitiesCliService(optionUserId?: string) {
+  const userId = await resolveUserId(optionUserId);
+  const client = await createCliUtpHttpClient({ store, userId });
+
+  return createActivitiesService(client);
+}
+
 function formatModality(modality?: string): string {
   switch (modality?.toUpperCase()) {
     case "R":
@@ -155,6 +183,51 @@ function formatAcademicPeriods(
       `${period.period}  ${period.name}\n      ${period.start} to ${period.end}`
     )
     .join("\n\n");
+}
+
+function formatActivityType(type: string): string {
+  switch (type.toLocaleUpperCase()) {
+    case "FORUM":
+      return "Forum";
+    case "HOMEWORK":
+      return "Homework";
+    default:
+      return type;
+  }
+}
+
+function formatActivityStatus(status: string): string {
+  return status
+    .toLocaleLowerCase()
+    .replaceAll("_", " ")
+    .replace(/^./, (character) => character.toLocaleUpperCase());
+}
+
+function formatActivity(activity: PendingActivity): string {
+  const lines = [
+    activity.activityTitle,
+    `Course: ${activity.courseName}`,
+    `Type: ${formatActivityType(activity.type)} · Week: ${activity.weekNumber}`,
+    `Due: ${activity.finishAt}`,
+    `Status: ${formatActivityStatus(activity.activityStatusFinal)}`,
+  ];
+
+  if (activity.isQualificated && activity.evaluationTopScore !== null) {
+    lines.push(`Maximum score: ${activity.evaluationTopScore}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatNotification(notification: UtpNotification): string {
+  const date = formatNotificationDate(notification);
+
+  return [
+    notification.title || "Untitled notification",
+    `Date: ${date || "Unknown"}`,
+    `Status: ${notification.seen ? "Read" : "Unread"}`,
+    `ID: ${notification.id}`,
+  ].join("\n");
 }
 
 async function printAcademicPeriods(optionUserId?: string): Promise<void> {
@@ -215,17 +288,20 @@ async function handleCompatibilityCommands(argv: string[]): Promise<boolean> {
 }
 
 cli
-  .command("login", "Open the UTP login flow and save the CLI session")
+  .command("login", "Log in to UTP and save the CLI session")
   .option("--timeout <seconds>", "Seconds to wait for the browser callback", {
     default: 120,
   })
-  .option("--mode <mode>", "Login mode: capture, localhost, or headless", {
-    default: "capture",
-  })
-  .action(async (options: { timeout?: string | number; mode?: string }) => {
+  .option("--browser", "Open a visible browser for login")
+  .option("--mode <mode>", "Advanced login mode: capture, localhost, or headless")
+  .action(async (options: {
+    timeout?: string | number;
+    browser?: boolean;
+    mode?: string;
+  }) => {
     try {
       const timeoutSeconds = parseTimeout(options.timeout);
-      const mode = parseLoginMode(options.mode);
+      const mode = parseLoginMode(options.mode, options.browser);
       console.log(
         mode === "headless"
           ? "Starting headless UTP login..."
@@ -344,13 +420,62 @@ cli
 cli
   .command("notifications", "List UTP notifications")
   .option("--seen <value>", "Filter by seen status: true or false")
+  .option("--mark-read <notificationId>", "Mark a notification as read")
+  .option("--json", "Print normalized notifications as JSON")
   .option("--user-id <id>", "UTP user id for this request")
-  .action(async (options: { seen?: string | boolean; userId?: string }) => {
+  .action(async (options: {
+    seen?: string | boolean;
+    markRead?: string;
+    json?: boolean;
+    userId?: string;
+  }) => {
     try {
       const service = await createNotificationsCliService(options.userId);
-      const payload = await service.listNotifications(parseSeen(options.seen));
 
-      console.log(JSON.stringify(payload, null, 2));
+      if (options.markRead) {
+        const notificationId = parseOptionalText(options.markRead);
+
+        if (!notificationId) {
+          throw new Error("A notification id is required for --mark-read");
+        }
+
+        await service.markAsSeen(notificationId);
+
+        if (options.json) {
+          console.log(JSON.stringify({
+            data: {
+              notificationId,
+              seen: true,
+            },
+          }, null, 2));
+        } else {
+          console.log(`Notification ${notificationId} marked as read.`);
+        }
+
+        return;
+      }
+
+      const payload = await service.listNotifications(parseSeen(options.seen));
+      const notifications = readNotifications(payload);
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          data: notifications.map((notification) => ({
+            notificationId: notification.id,
+            title: notification.title,
+            dateTime: readNotificationDate(notification),
+            seen: notification.seen,
+          })),
+        }, null, 2));
+        return;
+      }
+
+      if (notifications.length === 0) {
+        console.log("No notifications found.");
+        return;
+      }
+
+      console.log(notifications.map(formatNotification).join("\n\n"));
     } catch (error) {
       printError(error);
       console.error("Run `utp login` to authenticate again if the session expired.");
@@ -367,6 +492,39 @@ cli
     } catch (error) {
       printError(error);
       console.error("Run `utp login` to authenticate again if the session expired.");
+      process.exitCode = 1;
+    }
+  });
+
+cli
+  .command("activities", "List pending UTP activities")
+  .option("--type <type>", "Filter by activity type, such as forum or homework")
+  .option("--json", "Print the complete filtered response as JSON")
+  .option("--user-id <id>", "UTP user id for this request")
+  .action(async (options: {
+    type?: string;
+    json?: boolean;
+    userId?: string;
+  }) => {
+    try {
+      const service = await createActivitiesCliService(options.userId);
+      const activities = await service.listPendingActivities({
+        type: parseOptionalText(options.type),
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(activities, null, 2));
+        return;
+      }
+
+      if (activities.length === 0) {
+        console.log("No pending activities found.");
+        return;
+      }
+
+      console.log(activities.map(formatActivity).join("\n\n"));
+    } catch (error) {
+      printError(error);
       process.exitCode = 1;
     }
   });
