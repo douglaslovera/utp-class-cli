@@ -100,6 +100,13 @@ export function selectCurrentAcademicPeriod(
   )[0]!;
 }
 
+export function selectCurrentAcademicPeriodCode(
+  periods: AcademicPeriod[],
+  date: Date = new Date(),
+): string {
+  return selectCurrentAcademicPeriod(periods, formatLocalDate(date)).period;
+}
+
 function normalizeSearch(value: string): string {
   return value
     .normalize("NFD")

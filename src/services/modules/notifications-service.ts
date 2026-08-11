@@ -1,4 +1,8 @@
 import type { UtpHttpClient } from "../upstream/utp-http-client";
+import {
+  createCoursesService,
+  selectCurrentAcademicPeriodCode,
+} from "./courses-service";
 
 export interface UtpNotification {
   id: string;
@@ -26,6 +30,10 @@ export interface NotificationsPayload {
 export interface NotificationsService {
   listNotifications(seen?: boolean): Promise<NotificationsPayload>;
   markAsSeen(notificationId: string): Promise<unknown>;
+}
+
+export interface NotificationsServiceOptions {
+  now?: () => Date;
 }
 
 export function readNotifications(payload: NotificationsPayload): UtpNotification[] {
@@ -59,12 +67,17 @@ export function formatNotificationDate(notification: UtpNotification): string | 
 export function createNotificationsService(
   client: UtpHttpClient,
   userId: string,
+  options: NotificationsServiceOptions = {},
 ): NotificationsService {
+  const coursesService = createCoursesService(client, userId);
+
   return {
     async listNotifications(seen?: boolean): Promise<NotificationsPayload> {
+      const periods = await coursesService.listAcademicPeriods();
+      const period = selectCurrentAcademicPeriodCode(periods, options.now?.() ?? new Date());
       const path =
         "/notification/student/notifications/search/user"
-        + `/${encodeURIComponent(userId)}?page=1&viewFirstNoSeen=false&period=2262,9999,9999`;
+        + `/${encodeURIComponent(userId)}?page=1&viewFirstNoSeen=false&period=${period},9999,9999`;
 
       const payload = await client.requestApiJson<NotificationsPayload>(path, {
         method: "GET",

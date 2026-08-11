@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "utp": "./dist/cli.js"
+    "utp": "./bin/utp.js"
   },
   "scripts": {
     "cli": "bun run src/cli.ts",

@@ -137,6 +137,36 @@ describe("HTTP routes", () => {
         return createTokenResponse();
       }
 
+      if (stringUrl === "https://api-pao.utpxpedition.com/course/student/123456/academicperiods") {
+        return new Response(JSON.stringify({
+          data: {
+            academicPeriods: [
+              {
+                id: "default",
+                period: "9999",
+                acadCareer: "PRED",
+                module: "000",
+                name: "Período Predeterminado",
+                start: "1900-01-01",
+                end: "2100-12-31",
+              },
+              {
+                id: "current",
+                period: "2262",
+                acadCareer: "PREG",
+                module: "001",
+                name: "2026 - Ciclo 1",
+                start: "1900-01-01",
+                end: "2100-12-31",
+              },
+            ],
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
       expect(stringUrl).toBe(
         "https://api-pao.utpxpedition.com/notification/student/notifications/search/user/123456?page=1&viewFirstNoSeen=false&period=2262,9999,9999",
       );
@@ -197,6 +227,21 @@ describe("HTTP routes", () => {
 
       if (stringUrl === config.auth.tokenUrl) {
         return createTokenResponse();
+      }
+
+      if (stringUrl.endsWith("/academicperiods")) {
+        return new Response(JSON.stringify({
+          data: {
+            academicPeriods: [{
+              period: "2262",
+              start: "1900-01-01",
+              end: "2100-12-31",
+            }],
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       return createNotificationsResponse();
