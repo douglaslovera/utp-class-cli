@@ -11,6 +11,8 @@ export interface AcademicPeriod {
 }
 
 export interface DashboardCourse {
+  sectionId?: string;
+  courseId?: string;
   period: string;
   acadCareer: string;
   module: string;
@@ -114,6 +116,62 @@ function normalizeSearch(value: string): string {
     .toLocaleLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+export function resolveCourse(
+  courses: DashboardCourse[],
+  selector: string,
+): DashboardCourse {
+  const trimmedSelector = selector.trim();
+
+  if (!trimmedSelector) {
+    throw new Error("Course selector cannot be empty");
+  }
+
+  const exactMatches = courses.filter((course) => [
+    course.classNumber,
+    course.courseCode,
+    course.sectionCode,
+    course.sectionId,
+    course.courseId,
+  ].some((value) => value === trimmedSelector));
+  const normalizedSelector = normalizeSearch(trimmedSelector);
+
+  if (!normalizedSelector) {
+    throw new Error("Course selector must contain letters or numbers");
+  }
+
+  const selectorWords = normalizedSelector.split(" ").filter(Boolean);
+  const normalizedNameMatches = courses.filter(
+    (course) => course.name && normalizeSearch(course.name) === normalizedSelector,
+  );
+  const matches = exactMatches.length > 0
+    ? exactMatches
+    : normalizedNameMatches.length > 0
+    ? normalizedNameMatches
+    : courses.filter((course) => [
+      course.name,
+      course.classNumber,
+      course.courseCode,
+      course.sectionCode,
+    ].some((value) =>
+      value && selectorWords.every((word) => normalizeSearch(value).includes(word))
+    ));
+
+  if (matches.length === 0) {
+    throw new Error(`Course "${selector}" was not found in the current academic period`);
+  }
+
+  if (matches.length > 1) {
+    const choices = matches.map((course) =>
+      `${course.classNumber || course.sectionCode || "unknown"} (${course.name || "Unnamed course"})`
+    );
+    throw new Error(
+      `Course "${selector}" is ambiguous. Choose one of: ${choices.join(", ")}`,
+    );
+  }
+
+  return matches[0]!;
 }
 
 export function resolveAcademicPeriods(

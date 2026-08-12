@@ -14,12 +14,19 @@ import {
 } from "./services/modules/notifications-service";
 import {
   createCoursesService,
+  resolveCourse,
   type DashboardCourse,
 } from "./services/modules/courses-service";
 import {
   createActivitiesService,
   type PendingActivity,
 } from "./services/modules/activities-service";
+import {
+  createVideoConferencesService,
+  selectAvailableVideoConferences,
+  selectLatestAvailableVideoConference,
+  type VideoConference,
+} from "./services/modules/video-conferences-service";
 import { promptPassword, promptText } from "./cli/prompts";
 import { AppError } from "./utils/errors";
 
@@ -142,6 +149,16 @@ async function createActivitiesCliService(optionUserId?: string) {
   return createActivitiesService(client);
 }
 
+async function createCourseZoomCliServices(optionUserId?: string) {
+  const userId = await resolveUserId(optionUserId);
+  const client = await createCliUtpHttpClient({ store, userId });
+
+  return {
+    courses: createCoursesService(client, userId),
+    videoConferences: createVideoConferencesService(client),
+  };
+}
+
 function formatModality(modality?: string): string {
   switch (modality?.toUpperCase()) {
     case "R":
@@ -228,6 +245,28 @@ function formatNotification(notification: UtpNotification): string {
     `Status: ${notification.seen ? "Read" : "Unread"}`,
     `ID: ${notification.id}`,
   ].join("\n");
+}
+
+function formatVideoConference(meeting: VideoConference): string {
+  const week = meeting.weekNumber.replace(/^Semana\s*/i, "").trim();
+
+  return [
+    meeting.title || "Untitled Zoom meeting",
+    `Week: ${week || "Unknown"}`,
+    `Starts: ${meeting.startAt || "Unknown"}`,
+    `Zoom: ${meeting.zoomLink || "Unknown"}`,
+  ].join("\n");
+}
+
+function formatCourseIdentity(course: DashboardCourse) {
+  return {
+    name: course.name ?? null,
+    classNumber: course.classNumber ?? null,
+    courseCode: course.courseCode ?? null,
+    sectionCode: course.sectionCode ?? null,
+    courseId: course.courseId ?? null,
+    sectionId: course.sectionId ?? null,
+  };
 }
 
 async function printAcademicPeriods(optionUserId?: string): Promise<void> {
@@ -571,6 +610,88 @@ cli
       console.log(result.courses
         .map((course) => formatCourse(course, options.teacherEmail === true))
         .join("\n\n"));
+    } catch (error) {
+      printError(error);
+      process.exitCode = 1;
+    }
+  });
+
+cli
+  .command("course <resource> <course>", "Get a resource for one UTP course")
+  .option("--latest", "Return the closest non-expired Zoom meeting")
+  .option("--json", "Print the response as JSON")
+  .option("--user-id <id>", "UTP user id for this request")
+  .action(async (
+    resource: string,
+    courseSelector: string,
+    options: {
+      latest?: boolean;
+      json?: boolean;
+      userId?: string;
+    },
+  ) => {
+    try {
+      if (resource.toLocaleLowerCase() !== "zoom") {
+        throw new Error(
+          `Unknown course resource "${resource}". Currently supported: zoom`,
+        );
+      }
+
+      const services = await createCourseZoomCliServices(options.userId);
+      const currentCourses = await services.courses.listCourses();
+      const course = resolveCourse(currentCourses.courses, courseSelector);
+
+      if (!course.courseId || !course.sectionId) {
+        throw new Error(
+          `Course "${courseSelector}" does not contain the ids required to load Zoom meetings`,
+        );
+      }
+
+      const meetings = await services.videoConferences.listVideoConferences(
+        course.courseId,
+        course.sectionId,
+      );
+
+      if (options.latest) {
+        const latest = selectLatestAvailableVideoConference(meetings);
+
+        if (options.json) {
+          console.log(JSON.stringify({
+            data: {
+              course: formatCourseIdentity(course),
+              meeting: latest ?? null,
+            },
+          }, null, 2));
+          return;
+        }
+
+        if (!latest) {
+          console.log(`No non-expired Zoom meetings found for ${course.name || courseSelector}.`);
+          return;
+        }
+
+        console.log(formatVideoConference(latest));
+        return;
+      }
+
+      const available = selectAvailableVideoConferences(meetings);
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          data: {
+            course: formatCourseIdentity(course),
+            meetings: available,
+          },
+        }, null, 2));
+        return;
+      }
+
+      if (available.length === 0) {
+        console.log(`No non-expired Zoom meetings found for ${course.name || courseSelector}.`);
+        return;
+      }
+
+      console.log(available.map(formatVideoConference).join("\n\n"));
     } catch (error) {
       printError(error);
       process.exitCode = 1;

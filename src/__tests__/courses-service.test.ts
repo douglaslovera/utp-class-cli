@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createCoursesService,
   formatLocalDate,
+  resolveCourse,
   resolveAcademicPeriods,
   selectCurrentAcademicPeriod,
   type AcademicPeriod,
@@ -41,6 +42,46 @@ describe("courses service", () => {
   test("resolves a period by code or words from its name", () => {
     expect(resolveAcademicPeriods(periods, "2262")[0]?.id).toBe("current");
     expect(resolveAcademicPeriods(periods, "2026 ciclo 1")[0]?.id).toBe("current");
+  });
+
+  test("resolves a current course by class number or partial name", () => {
+    const courses = [
+      {
+        name: "AUDITORIA DE SISTEMAS INFORMÁTICOS",
+        classNumber: "42847",
+        courseCode: "100000SI91",
+        sectionCode: "2263100000SI9142847",
+        sectionId: "section-1",
+        courseId: "course-1",
+        period: "2263",
+        acadCareer: "PREG",
+        module: "001",
+      },
+    ];
+
+    expect(resolveCourse(courses, "42847").courseId).toBe("course-1");
+    expect(resolveCourse(courses, "auditoria sistemas").sectionId).toBe("section-1");
+  });
+
+  test("rejects an ambiguous course selector", () => {
+    const courses = [
+      {
+        name: "PROGRAMACIÓN I",
+        classNumber: "10001",
+        period: "2263",
+        acadCareer: "PREG",
+        module: "001",
+      },
+      {
+        name: "PROGRAMACIÓN II",
+        classNumber: "10002",
+        period: "2263",
+        acadCareer: "PREG",
+        module: "001",
+      },
+    ];
+
+    expect(() => resolveCourse(courses, "programacion")).toThrow("ambiguous");
   });
 
   test("fetches periods first and returns only courses for the current period", async () => {
