@@ -56,8 +56,9 @@ ssh server 'chmod 600 ~/.config/utp-class-cli/session.json'
 
 After copying it, run `utp session` on the target machine to confirm the CLI sees the session.
 
-If you still need to set the UTP user id for API commands, use:
+The login normally detects and saves the UTP student code used as the API user id. Check it with `utp session`. If it is shown as `unknown`, use your UTP student code (código de alumno), the identifier used to access UTP+Class and other UTP platforms:
 
 ```sh
-utp config user-id <userId>
+utp config user-id <student-code>
+utp session
 ```

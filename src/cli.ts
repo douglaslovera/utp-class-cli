@@ -29,6 +29,7 @@ import {
 } from "./services/modules/video-conferences-service";
 import { promptPassword, promptText } from "./cli/prompts";
 import { AppError } from "./utils/errors";
+import { readUserIdFromIdToken } from "./cli/user-id";
 
 function formatValue(value: string | null): string {
   return value ?? "unknown";
@@ -362,14 +363,20 @@ cli
         return runBrowserLogin({ timeoutSeconds });
       })();
       const existingSession = await store.load();
+      const detectedUserId = readUserIdFromIdToken(result.session.idToken);
+      const userId = existingSession?.userId ?? result.session.userId ?? detectedUserId;
       await store.save({
         ...result.session,
-        userId: existingSession?.userId ?? null,
+        userId,
       });
 
       console.log("Login complete.");
       console.log(`Session file: ${store.path}`);
       console.log(`Refresh token expires: ${formatValue(result.session.refreshTokenExpiresAt)}`);
+      console.log(`User id: ${formatValue(userId)}`);
+      if (!userId) {
+        console.log("Run `utp config user-id <student-code>` before using data commands.");
+      }
     } catch (error) {
       printError(error);
       process.exitCode = 1;
